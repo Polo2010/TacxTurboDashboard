@@ -1,1 +1,1532 @@
-[{"id":"8ac9e06.674652","type":"tab","label":"Flow 1","disabled":false,"info":""},{"id":"78c9ba82.45a024","type":"tab","label":"PowerTap Calibration","disabled":false,"info":""},{"id":"c68ceccf.230e5","type":"mqtt-broker","name":"Local MQTT","broker":"localhost","port":"1883","clientid":"","usetls":false,"compatmode":false,"keepalive":"60","cleansession":true,"birthTopic":"","birthQos":"0","birthPayload":"","closeTopic":"","closeQos":"0","closePayload":"","willTopic":"","willQos":"0","willPayload":""},{"id":"64c701e3.eafd4","type":"ui_base","theme":{"name":"theme-dark","lightTheme":{"default":"#0094CE","baseColor":"#0094CE","baseFont":"-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Oxygen-Sans,Ubuntu,Cantarell,Helvetica Neue,sans-serif","edited":true,"reset":false},"darkTheme":{"default":"#097479","baseColor":"#097479","baseFont":"-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Oxygen-Sans,Ubuntu,Cantarell,Helvetica Neue,sans-serif","edited":true,"reset":false},"customTheme":{"name":"Untitled Theme 1","default":"#4B7930","baseColor":"#4B7930","baseFont":"-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Oxygen-Sans,Ubuntu,Cantarell,Helvetica Neue,sans-serif"},"themeState":{"base-color":{"default":"#097479","value":"#097479","edited":false},"page-titlebar-backgroundColor":{"value":"#097479","edited":false},"page-backgroundColor":{"value":"#111111","edited":false},"page-sidebar-backgroundColor":{"value":"#333333","edited":false},"group-textColor":{"value":"#0eb8c0","edited":false},"group-borderColor":{"value":"#555555","edited":false},"group-backgroundColor":{"value":"#333333","edited":false},"widget-textColor":{"value":"#eeeeee","edited":false},"widget-backgroundColor":{"value":"#097479","edited":false},"widget-borderColor":{"value":"#333333","edited":false},"base-font":{"value":"-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Oxygen-Sans,Ubuntu,Cantarell,Helvetica Neue,sans-serif"}},"angularTheme":{"primary":"indigo","accents":"blue","warn":"red","background":"grey"}},"site":{"name":"Node-RED Dashboard","hideToolbar":"true","allowSwipe":"true","lockMenu":"false","allowTempTheme":"true","dateFormat":"DD/MM/YYYY","sizes":{"sx":48,"sy":48,"gx":6,"gy":6,"cx":6,"cy":6,"px":0,"py":0}}},{"id":"8588b9b.8464f48","type":"ui_tab","name":"Workout","icon":"dashboard","order":1,"disabled":false,"hidden":false},{"id":"5c7dfe6e.7d013","type":"ui_group","name":"PowerCalibration","tab":"7731c1dd.7867","order":1,"disp":true,"width":"7","collapse":true},{"id":"2abd97e1.82cc48","type":"ui_group","name":"HR","tab":"8588b9b.8464f48","order":2,"disp":true,"width":"7","collapse":true},{"id":"251514f2.86154c","type":"ui_group","name":"HRV","tab":"8588b9b.8464f48","order":3,"disp":true,"width":"7","collapse":true},{"id":"d17f170a.a3a6a8","type":"ui_group","name":"Load","tab":"8588b9b.8464f48","order":4,"disp":true,"width":"7","collapse":true},{"id":"f2098849.25ca68","type":"ui_tab","name":"Power Detail","icon":"dashboard","order":2,"disabled":false,"hidden":false},{"id":"5fad0c7f.f5f524","type":"ui_group","name":"Power Stats","tab":"f2098849.25ca68","order":1,"disp":true,"width":"7","collapse":false},{"id":"49e2cce2.f92eb4","type":"ui_group","name":"Metrics","tab":"8588b9b.8464f48","order":5,"disp":true,"width":"7","collapse":true},{"id":"7731c1dd.7867","type":"ui_tab","name":"Calibration","icon":"dashboard","disabled":false,"hidden":false},{"id":"88ee5d15.c8cda","type":"ui_group","name":"Calibration Settings","tab":"7731c1dd.7867","order":2,"disp":true,"width":"7","collapse":true},{"id":"57975d27.112084","type":"mqtt in","z":"8ac9e06.674652","name":"","topic":"bike/heartrate","qos":"2","datatype":"json","broker":"c68ceccf.230e5","x":250,"y":240,"wires":[["f34a2a84.6fd3b8"]]},{"id":"47cdd269.d8786c","type":"function","z":"8ac9e06.674652","name":"HRVCalc","func":"let range = 1 * 60 * 1000;\nlet now  = new Date();\n\nlet heart_rate = parseInt(msg.payload.hr);\nlet beatCount = parseInt(msg.payload.beatCount);\nlet currentBeat = parseInt(msg.payload.currentBeat);\nlet previousBeat = parseInt(msg.payload.previousBeat);\n\nlet previousBeatCount = flow.get('previousBeatCount') || 0;\nlet buffer = flow.get('buffer') || [];\nlet total = flow.get('total') || 0;\nlet rrInterval = 0;\nprevRRInterval = flow.get('prevRRInterval') || 0;\n\n// remove old buffer values\nwhile (buffer[0] && (new Date(buffer[0].timestamp)) < (now - range)) {\n    // remove oldest sample from array and total\n    //node.warn(`removing oldest ${buffer[0].timestamp}`);\n    total -= buffer[0].value;\n    buffer.shift();\n}\n\nif (buffer.length == 0) total = 0;\n\nif(beatCount == previousBeatCount + 1)\n{\n    rrInterval = currentBeat-previousBeat;\n    if (rrInterval < 0) {\n        rrInterval = rrInterval + Math.pow(2, 16);\n    }\n    // check that previous interval is available and set properly\n    // before calculation\n    if(prevRRInterval == 0) {\n        // set the prevRRInterval correctly and move on to next beat\n        flow.set('prevRRInterval', rrInterval);\n    }\n    //check that interval isn't > 1.5 times beat length\n    //if it is, skip the calculation\n    else if (rrInterval < ((1.5 * (60 * 1000) / heart_rate))) {\n        let rrVar = Math.abs(prevRRInterval - rrInterval);\n        let sqrRRVar = Math.pow(rrVar,2);\n    \n        // add the new sample to the end\n        buffer.push({timestamp: now, value: sqrRRVar});\n        total += sqrRRVar;\n        flow.set('prevRRInterval', rrInterval);\n    }\n    else node.warn('skipping calculation');\n}\nelse {\n    node.warn('non-consecutive beats - skipped hrv calc');\n    node.warn(\"previousBeatCount: \"+previousBeatCount);\n    node.warn(\"currentBeatCount: \"+beatCount);\n}\n\nlet hrv = Math.sqrt(total/buffer.length);\n\n// always put the buffer and totals back, as time window has moved\nflow.set('buffer', buffer);\nflow.set('total', total);\nif(beatCount == 255) beatCount = -1;\nflow.set('previousBeatCount', beatCount);\n\nmsg.payload.rrInterval = rrInterval;\nmsg.payload.total = total;\nmsg.payload.bufferLength = buffer.length;\nmsg.payload.hrv = hrv;\n\nreturn msg;","outputs":1,"noerr":0,"initialize":"","finalize":"","x":460,"y":300,"wires":[["a17ed935.2176e8","8ad0419.0bd1bc","15ce9ff2.76a29","ed14652d.737f28","37f9b494.a5d32c"]]},{"id":"a17ed935.2176e8","type":"debug","z":"8ac9e06.674652","name":"","active":false,"tosidebar":true,"console":false,"tostatus":false,"complete":"payload.trimp","targetType":"msg","statusVal":"","statusType":"auto","x":690,"y":380,"wires":[]},{"id":"8ad0419.0bd1bc","type":"csv","z":"8ac9e06.674652","name":"","sep":"\\t","hdrin":"","hdrout":"none","multi":"one","ret":"\\n","temp":"timestamp,hr,beatCount, currentBeat, previousBeat,rrInterval,trimp,hrv,total,bufferLength","skip":"0","strings":true,"include_empty_strings":"","include_null_values":"","x":650,"y":220,"wires":[["2e8422dd.6858de"]]},{"id":"2e8422dd.6858de","type":"file","z":"8ac9e06.674652","name":"","filename":"/home/pi/rrintervals.txt","appendNewline":false,"createDir":false,"overwriteFile":"false","encoding":"none","x":840,"y":220,"wires":[[]]},{"id":"314209b.8e17ff6","type":"ui_text","z":"8ac9e06.674652","group":"5fad0c7f.f5f524","order":0,"width":"0","height":"0","name":"","label":"Power","format":"{{msg.payload.power}}","layout":"row-spread","x":650,"y":420,"wires":[]},{"id":"bad6422a.cc5e2","type":"mqtt in","z":"8ac9e06.674652","name":"","topic":"bike/power","qos":"2","datatype":"json","broker":"c68ceccf.230e5","x":240,"y":460,"wires":[["1db5d2eb.a629fd","f1672694.033d38"]]},{"id":"eb28e150.94955","type":"ui_text","z":"8ac9e06.674652","group":"5fad0c7f.f5f524","order":0,"width":"0","height":"0","name":"","label":"Av Power","format":"{{msg.payload.av_power}}","layout":"row-spread","x":660,"y":460,"wires":[]},{"id":"1db5d2eb.a629fd","type":"function","z":"8ac9e06.674652","name":"","func":"\nreturn msg;","outputs":1,"noerr":0,"initialize":"","finalize":"","x":460,"y":460,"wires":[["eb28e150.94955","c08da917.e431b8","314209b.8e17ff6"]]},{"id":"ae7d6b6b.d5ec48","type":"ui_template","z":"8ac9e06.674652","group":"5c7dfe6e.7d013","name":"Workout Tab Format","order":1,"width":0,"height":0,"format":"<style>\n    .value {\n        font-size: 40px;\n        color: red;\n    }\n    .label {\n        font-size: 20px;\n        text-align: left;\n    }\n</style>","storeOutMessages":true,"fwdInMessages":true,"resendOnRefresh":true,"templateScope":"local","x":260,"y":80,"wires":[[]]},{"id":"15ce9ff2.76a29","type":"ui_text","z":"8ac9e06.674652","group":"2abd97e1.82cc48","order":0,"width":0,"height":0,"name":"","label":"HR","format":"{{msg.payload.hr}}","layout":"row-spread","x":650,"y":260,"wires":[]},{"id":"ed14652d.737f28","type":"ui_text","z":"8ac9e06.674652","group":"251514f2.86154c","order":0,"width":0,"height":0,"name":"","label":"HRV60","format":"{{msg.payload.hrv |number: 2}}","layout":"row-spread","x":660,"y":300,"wires":[]},{"id":"37f9b494.a5d32c","type":"ui_text","z":"8ac9e06.674652","group":"d17f170a.a3a6a8","order":0,"width":0,"height":0,"name":"TRIMP","label":"TRIMP","format":"{{msg.payload.trimp |number: 0}}","layout":"row-spread","x":650,"y":340,"wires":[]},{"id":"f7902dc3.ae7b6","type":"mqtt in","z":"8ac9e06.674652","name":"","topic":"bike/trainer","qos":"2","datatype":"json","broker":"c68ceccf.230e5","x":240,"y":620,"wires":[["badff620.d1f018","98326e0a.dae5a"]]},{"id":"f1672694.033d38","type":"csv","z":"8ac9e06.674652","name":"","sep":"\\t","hdrin":"","hdrout":"none","multi":"one","ret":"\\n","temp":"","skip":"0","strings":true,"include_empty_strings":"","include_null_values":"","x":250,"y":540,"wires":[["b6008833.e3fb48"]]},{"id":"badff620.d1f018","type":"csv","z":"8ac9e06.674652","name":"","sep":"\\t","hdrin":"","hdrout":"none","multi":"one","ret":"\\n","temp":"timestamp,speed,force_index,force,cadence","skip":"0","strings":true,"include_empty_strings":"","include_null_values":"","x":250,"y":680,"wires":[["22f6b2f5.e238ee"]]},{"id":"b6008833.e3fb48","type":"file","z":"8ac9e06.674652","name":"","filename":"/home/pi/power.txt","appendNewline":false,"createDir":false,"overwriteFile":"false","encoding":"none","x":430,"y":540,"wires":[[]]},{"id":"22f6b2f5.e238ee","type":"file","z":"8ac9e06.674652","name":"","filename":"/home/pi/trainer.txt","appendNewline":false,"createDir":false,"overwriteFile":"false","encoding":"none","x":430,"y":680,"wires":[[]]},{"id":"c08da917.e431b8","type":"ui_text","z":"8ac9e06.674652","group":"5fad0c7f.f5f524","order":0,"width":"0","height":"0","name":"","label":"Max Power","format":"{{msg.payload}}","layout":"row-spread","x":670,"y":500,"wires":[]},{"id":"c1ce9a0d.b4f348","type":"ui_template","z":"8ac9e06.674652","group":"5fad0c7f.f5f524","name":"Power Tab Format","order":2,"width":0,"height":0,"format":"<style>\n    .value {\n        font-size: 40px;\n        color: red;\n    }\n    .label {\n        font-size: 40px;\n    }\n</style>","storeOutMessages":true,"fwdInMessages":true,"resendOnRefresh":true,"templateScope":"local","x":250,"y":120,"wires":[[]]},{"id":"98326e0a.dae5a","type":"function","z":"8ac9e06.674652","name":"","func":"\nreturn msg;","outputs":1,"noerr":0,"initialize":"","finalize":"","x":460,"y":620,"wires":[["50a1bd51.5e5b44","55faefec.700f","dca1e100.96fc9"]]},{"id":"50a1bd51.5e5b44","type":"ui_text","z":"8ac9e06.674652","group":"49e2cce2.f92eb4","order":3,"width":0,"height":0,"name":"","label":"Cadence","format":"{{msg.payload.cadence}}","layout":"row-spread","x":660,"y":600,"wires":[]},{"id":"797d737a.3eeedc","type":"inject","z":"8ac9e06.674652","name":"Reset Flow Values","props":[{"p":"payload"},{"p":"topic","vt":"str"}],"repeat":"","crontab":"","once":false,"onceDelay":0.1,"topic":"","payload":"","payloadType":"date","x":260,"y":760,"wires":[["dcb0b771.3c6f18"]]},{"id":"dcb0b771.3c6f18","type":"function","z":"8ac9e06.674652","name":"","func":"flow.set('prevRRInterval', 0);\nflow.set('buffer', []);\nflow.set('total', 0);\nflow.set('trimp',0);\nflow.set('previousBeatCount', 0);\n","outputs":1,"noerr":0,"initialize":"","finalize":"","x":460,"y":760,"wires":[[]]},{"id":"f34a2a84.6fd3b8","type":"function","z":"8ac9e06.674652","name":"TrimpCalc","func":"let now  = new Date();\nlet heart_rate = parseInt(msg.payload.hr);\nlet interval = (msg.payload.currentBeat - msg.payload.previousBeat)\nlet trimp = flow.get('trimp') || 0;\n\n//get time interval for this HR:\n// get prev\n\n// Calculate current TRIMP increment\n\n\t// 50-60%\n\tif (heart_rate > 100 && heart_rate < 120)\n\t\ttrimp = trimp + (0 * interval / (60*1000));\n\t// 60-70%\n\tif (heart_rate >= 120 && heart_rate < 140)\n\t\ttrimp = trimp + (1.1 * interval / (60*1000));\n\t// 70-80%\n\tif (heart_rate >= 140 && heart_rate < 160)\n\t\ttrimp = trimp + (1.7 * interval / (60*1000));\n\t// 80-90%\n\tif (heart_rate >= 160 && heart_rate < 180)\n\t\ttrimp = trimp + (2.6 * interval / (60*1000));\n\t// 90-100%\n\tif (heart_rate >= 180 && heart_rate <= 200)\n\t\ttrimp = trimp + (3.9 * interval / (60*1000));\n\nflow.set('trimp',trimp);\n\nmsg.payload.trimp = trimp;\nmsg.payload.timestamp=now.toISOString();\nreturn msg;","outputs":1,"noerr":0,"initialize":"","finalize":"","x":460,"y":240,"wires":[["47cdd269.d8786c"]]},{"id":"55faefec.700f","type":"ui_text","z":"8ac9e06.674652","group":"49e2cce2.f92eb4","order":3,"width":0,"height":0,"name":"","label":"Resistance","format":"{{msg.payload.force_index}}","layout":"row-spread","x":670,"y":640,"wires":[]},{"id":"dca1e100.96fc9","type":"ui_text","z":"8ac9e06.674652","group":"49e2cce2.f92eb4","order":3,"width":0,"height":0,"name":"","label":"Force","format":"{{msg.payload.force}}","layout":"row-spread","x":650,"y":680,"wires":[]},{"id":"8e2c5392.fa35c","type":"debug","z":"78c9ba82.45a024","name":"","active":false,"tosidebar":true,"console":false,"tostatus":false,"complete":"false","statusVal":"","statusType":"auto","x":810,"y":320,"wires":[]},{"id":"1eca922f.1ec6de","type":"tcp out","z":"78c9ba82.45a024","host":"192.168.1.160","port":"8168","beserver":"client","base64":false,"end":false,"name":"","x":650,"y":160,"wires":[]},{"id":"534dfe0f.efb2e","type":"tcp in","z":"78c9ba82.45a024","name":"","server":"client","host":"192.168.1.160","port":"8168","datamode":"stream","datatype":"utf8","newline":"\\n","topic":"","base64":false,"x":180,"y":320,"wires":[["453827d9.3f1958"]]},{"id":"ebe08350.e2f9d","type":"inject","z":"78c9ba82.45a024","name":"","props":[{"p":"payload"},{"p":"topic","vt":"str"}],"repeat":"","crontab":"","once":false,"onceDelay":0.1,"topic":"","payload":"X-set-channel:0p","payloadType":"str","x":340,"y":160,"wires":[["1eca922f.1ec6de"]]},{"id":"df0ae45b.126588","type":"inject","z":"78c9ba82.45a024","name":"","props":[{"p":"payload"},{"p":"topic","vt":"str"}],"repeat":"","crontab":"","once":false,"onceDelay":0.1,"topic":"","payload":"X-calibrate:60930p","payloadType":"str","x":310,"y":200,"wires":[["1eca922f.1ec6de"]]},{"id":"8788ffc9.7063a","type":"function","z":"78c9ba82.45a024","name":"","func":"let result = msg.payload\nif (result.Torque) {\n    flow.set('torque', result.Torque.$.Nm);\n    let timemillis = result.Torque.$.timestamp;\n    let date = new Date(timemillis * 1000);\n    flow.set('timestamp', date.toISOString().substring(11,19));\n}\nelse if (result.Power) {\n    flow.set('power', result.Power.$.watts);\n    let timemillis = result.Power.$.timestamp\n    let date = new Date(timemillis * 1000);\n    flow.set('timestamp', date.toISOString().substring(11,19));\n}\nelse if (result.SensorFound) {\n    flow.set('calibrationStatus', 'N/A')\n    flow.set('powerTapID', result.SensorFound.$.id);\n    node.warn(result.SensorFound.$.id);\n}\nelse if (result.CalibrationPass) {\n    flow.set('calibrationStatus', 'Passed')\n    node.warn(result.CalibrationPass.$.id);\n}\nelse if (result.CalibrationFail) {\n    flow.set('calibrationStatus', 'Failed')\n    node.warn(result.CalibrationFail.$.id);\n}\nelse if (result.SensorLost) {\n    flow.set('calibrationStatus', 'N/A')\n    flow.set('powerTapID', 'N/A');\n    node.warn('Lost '+result.SensorLost.$.id);\n}\nelse if (result.Cadence || result.Speed || result.Power)\n{\n    //node.warn(result);\n}\nelse node.warn(result);\nreturn msg;","outputs":1,"noerr":0,"initialize":"","finalize":"","x":620,"y":320,"wires":[["8e2c5392.fa35c","290906e3.b91faa"]]},{"id":"453827d9.3f1958","type":"xml","z":"78c9ba82.45a024","name":"ConvertToJSON","property":"payload","attr":"","chr":"","x":420,"y":320,"wires":[["8788ffc9.7063a"]]},{"id":"b2613b8f.702a78","type":"ui_text","z":"78c9ba82.45a024","group":"5c7dfe6e.7d013","order":8,"width":0,"height":0,"name":"Torque","label":"Torque","format":"{{msg.payload.torque}}","layout":"row-spread","x":810,"y":420,"wires":[]},{"id":"290906e3.b91faa","type":"change","z":"78c9ba82.45a024","name":"","rules":[{"t":"set","p":"payload.power","pt":"msg","to":"power","tot":"flow"},{"t":"set","p":"payload.torque","pt":"msg","to":"torque","tot":"flow"},{"t":"set","p":"payload.calibrationStatus","pt":"msg","to":"calibrationStatus","tot":"flow"},{"t":"set","p":"payload.powerTapID","pt":"msg","to":"powerTapID","tot":"flow"},{"t":"set","p":"payload.timestamp","pt":"msg","to":"timestamp","tot":"flow"}],"action":"","property":"","from":"","to":"","reg":false,"x":560,"y":440,"wires":[["1879b1b4.049e4e","b2613b8f.702a78","e4a470c1.bb878","d01090c4.6e474","1bff6af2.8722a5"]]},{"id":"e4a470c1.bb878","type":"ui_text","z":"78c9ba82.45a024","group":"5c7dfe6e.7d013","order":7,"width":0,"height":0,"name":"Power","label":"Power","format":"{{msg.payload.power}}","layout":"row-spread","x":810,"y":460,"wires":[]},{"id":"1879b1b4.049e4e","type":"ui_text","z":"78c9ba82.45a024","group":"5c7dfe6e.7d013","order":2,"width":0,"height":0,"name":"PT ID","label":"ANT+ ID","format":"{{msg.payload.powerTapID}}","layout":"row-spread","x":810,"y":380,"wires":[]},{"id":"d01090c4.6e474","type":"ui_text","z":"78c9ba82.45a024","group":"5c7dfe6e.7d013","order":4,"width":0,"height":0,"name":"Cal Status","label":"Cal Status","format":"{{msg.payload.calibrationStatus}}","layout":"row-spread","x":830,"y":500,"wires":[]},{"id":"1bff6af2.8722a5","type":"ui_text","z":"78c9ba82.45a024","group":"5c7dfe6e.7d013","order":6,"width":0,"height":0,"name":"Time","label":"Time","format":"{{msg.payload.timestamp}}","layout":"row-spread","x":810,"y":540,"wires":[]},{"id":"ac164a28.66e968","type":"ui_text","z":"78c9ba82.45a024","group":"5c7dfe6e.7d013","order":9,"width":0,"height":0,"name":"Calc Torque","label":"Calc Torque","format":"{{msg.payload.expectedTorqueNm |number: 4}}","layout":"row-spread","x":830,"y":800,"wires":[]},{"id":"24ae9d64.8977a2","type":"ui_text","z":"78c9ba82.45a024","group":"5c7dfe6e.7d013","order":10,"width":0,"height":0,"name":"Error","label":"Error","format":"{{msg.payload.error}}","layout":"row-spread","x":810,"y":860,"wires":[]},{"id":"51852f20.91d03","type":"ui_button","z":"78c9ba82.45a024","name":"","group":"5c7dfe6e.7d013","order":5,"width":0,"height":0,"passthru":false,"label":"Calibrate","tooltip":"","color":"","bgcolor":"","icon":"","payload":"X-calibrate:60930p","payloadType":"str","topic":"topic","topicType":"msg","x":340,"y":260,"wires":[["1eca922f.1ec6de"]]},{"id":"6f3146bd.3dffa8","type":"ui_button","z":"78c9ba82.45a024","name":"","group":"5c7dfe6e.7d013","order":3,"width":0,"height":0,"passthru":false,"label":"Pair","tooltip":"","color":"","bgcolor":"","icon":"","payload":"X-set-channel:0p","payloadType":"str","topic":"topic","topicType":"msg","x":330,"y":120,"wires":[["1eca922f.1ec6de"]]},{"id":"ee6a2b77.a82f48","type":"ui_numeric","z":"78c9ba82.45a024","name":"Crank Length","label":"Crank Length","tooltip":"millimetres","group":"88ee5d15.c8cda","order":0,"width":0,"height":0,"wrap":false,"passthru":true,"topic":"topic","topicType":"msg","format":"{{value}}","min":"165","max":"175","step":"2.5","x":260,"y":520,"wires":[["c7f1a245.302bb"]]},{"id":"63c4e06e.a0c53","type":"inject","z":"78c9ba82.45a024","name":"","props":[{"p":"payload"},{"p":"topic","vt":"str"}],"repeat":"","crontab":"","once":true,"onceDelay":0.1,"topic":"","payload":"172.5","payloadType":"num","x":90,"y":540,"wires":[["ee6a2b77.a82f48","c7f1a245.302bb"]]},{"id":"c7f1a245.302bb","type":"change","z":"78c9ba82.45a024","name":"","rules":[{"t":"set","p":"crankLength","pt":"flow","to":"payload","tot":"msg"}],"action":"","property":"","from":"","to":"","reg":false,"x":480,"y":540,"wires":[["d8dc51f.96d20b"]]},{"id":"4e435aeb.4b4114","type":"change","z":"78c9ba82.45a024","name":"","rules":[{"t":"set","p":"chainring","pt":"flow","to":"payload","tot":"msg"}],"action":"","property":"","from":"","to":"","reg":false,"x":470,"y":600,"wires":[["d8dc51f.96d20b"]]},{"id":"6c804be8.09a4e4","type":"ui_numeric","z":"78c9ba82.45a024","name":"Chainring","label":"Chainring","tooltip":"teeth","group":"88ee5d15.c8cda","order":0,"width":0,"height":0,"wrap":false,"passthru":true,"topic":"topic","topicType":"msg","format":"{{value}}","min":"30","max":"52","step":"1","x":260,"y":580,"wires":[["4e435aeb.4b4114"]]},{"id":"1f4c847b.ffbb8c","type":"inject","z":"78c9ba82.45a024","name":"","props":[{"p":"payload"},{"p":"topic","vt":"str"}],"repeat":"","crontab":"","once":true,"onceDelay":0.1,"topic":"","payload":"52","payloadType":"num","x":90,"y":600,"wires":[["6c804be8.09a4e4","4e435aeb.4b4114"]]},{"id":"9091f8ec.d12fd8","type":"change","z":"78c9ba82.45a024","name":"","rules":[{"t":"set","p":"cogTeeth","pt":"flow","to":"payload","tot":"msg"}],"action":"","property":"","from":"","to":"","reg":false,"x":470,"y":660,"wires":[["d8dc51f.96d20b"]]},{"id":"d652fd7e.87693","type":"ui_numeric","z":"78c9ba82.45a024","name":"Cog teeth","label":"Cog teeth","tooltip":"Rear cassette","group":"88ee5d15.c8cda","order":0,"width":0,"height":0,"wrap":false,"passthru":true,"topic":"topic","topicType":"msg","format":"{{value}}","min":"11","max":"30","step":"1","x":260,"y":640,"wires":[["9091f8ec.d12fd8"]]},{"id":"4d8f3617.4a9268","type":"inject","z":"78c9ba82.45a024","name":"","props":[{"p":"payload"},{"p":"topic","vt":"str"}],"repeat":"","crontab":"","once":true,"onceDelay":0.1,"topic":"","payload":"12","payloadType":"num","x":90,"y":660,"wires":[["d652fd7e.87693","9091f8ec.d12fd8"]]},{"id":"49eabc7c.cbc3d4","type":"change","z":"78c9ba82.45a024","name":"","rules":[{"t":"set","p":"weight","pt":"flow","to":"payload","tot":"msg"}],"action":"","property":"","from":"","to":"","reg":false,"x":460,"y":720,"wires":[["d8dc51f.96d20b"]]},{"id":"e76529f6.644d58","type":"ui_numeric","z":"78c9ba82.45a024","name":"Weight","label":"Weight","tooltip":"kg","group":"88ee5d15.c8cda","order":0,"width":0,"height":0,"wrap":false,"passthru":true,"topic":"topic","topicType":"msg","format":"{{value}}kg","min":"2","max":"80","step":"1","x":250,"y":700,"wires":[["49eabc7c.cbc3d4"]]},{"id":"c05914dd.ed5338","type":"inject","z":"78c9ba82.45a024","name":"","props":[{"p":"payload"},{"p":"topic","vt":"str"}],"repeat":"","crontab":"","once":true,"onceDelay":0.1,"topic":"","payload":"5","payloadType":"num","x":90,"y":720,"wires":[["e76529f6.644d58","49eabc7c.cbc3d4"]]},{"id":"d8dc51f.96d20b","type":"function","z":"78c9ba82.45a024","name":"","func":"let crankLength = flow.get('crankLength');\nlet chainring = flow.get('chainring');\nlet cogTeeth = flow.get('cogTeeth');\nlet weight = flow.get('weight');\n\nlet expectedTorque = weight*9.80665*(crankLength/1000)*(cogTeeth/chainring);\nmsg = {}\nmsg.payload = {}\nmsg.payload.expectedTorqueNm = expectedTorque;\nmsg.payload.expectedTorquelbin = expectedTorque*8.85074;\nreturn msg;","outputs":1,"noerr":0,"initialize":"","finalize":"","x":760,"y":620,"wires":[["ac164a28.66e968","24ae9d64.8977a2","3a462962.2c4456"]]},{"id":"3a462962.2c4456","type":"debug","z":"78c9ba82.45a024","name":"","active":true,"tosidebar":true,"console":false,"tostatus":false,"complete":"false","statusVal":"","statusType":"auto","x":930,"y":620,"wires":[]},{"id":"4139d510.b320dc","type":"debug","z":"78c9ba82.45a024","name":"","active":true,"tosidebar":true,"console":false,"tostatus":false,"complete":"true","targetType":"full","statusVal":"","statusType":"auto","x":430,"y":800,"wires":[]},{"id":"a3d1395d.425d18","type":"debug","z":"78c9ba82.45a024","name":"","active":true,"tosidebar":true,"console":false,"tostatus":false,"complete":"false","statusVal":"","statusType":"auto","x":450,"y":840,"wires":[]},{"id":"985d9584.1719f8","type":"debug","z":"78c9ba82.45a024","name":"","active":true,"tosidebar":true,"console":false,"tostatus":false,"complete":"false","statusVal":"","statusType":"auto","x":450,"y":880,"wires":[]},{"id":"6efc60ab.72a6c","type":"debug","z":"78c9ba82.45a024","name":"","active":true,"tosidebar":true,"console":false,"tostatus":false,"complete":"false","statusVal":"","statusType":"auto","x":450,"y":920,"wires":[]}]
+[
+    {
+        "id": "8ac9e06.674652",
+        "type": "tab",
+        "label": "Flow 1",
+        "disabled": false,
+        "info": ""
+    },
+    {
+        "id": "78c9ba82.45a024",
+        "type": "tab",
+        "label": "PowerTap Calibration",
+        "disabled": false,
+        "info": ""
+    },
+    {
+        "id": "c68ceccf.230e5",
+        "type": "mqtt-broker",
+        "name": "Local MQTT",
+        "broker": "localhost",
+        "port": "1883",
+        "clientid": "",
+        "usetls": false,
+        "compatmode": false,
+        "keepalive": "60",
+        "cleansession": true,
+        "birthTopic": "",
+        "birthQos": "0",
+        "birthPayload": "",
+        "closeTopic": "",
+        "closeQos": "0",
+        "closePayload": "",
+        "willTopic": "",
+        "willQos": "0",
+        "willPayload": ""
+    },
+    {
+        "id": "64c701e3.eafd4",
+        "type": "ui_base",
+        "theme": {
+            "name": "theme-dark",
+            "lightTheme": {
+                "default": "#0094CE",
+                "baseColor": "#0094CE",
+                "baseFont": "-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Oxygen-Sans,Ubuntu,Cantarell,Helvetica Neue,sans-serif",
+                "edited": true,
+                "reset": false
+            },
+            "darkTheme": {
+                "default": "#097479",
+                "baseColor": "#097479",
+                "baseFont": "-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Oxygen-Sans,Ubuntu,Cantarell,Helvetica Neue,sans-serif",
+                "edited": true,
+                "reset": false
+            },
+            "customTheme": {
+                "name": "Untitled Theme 1",
+                "default": "#4B7930",
+                "baseColor": "#4B7930",
+                "baseFont": "-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Oxygen-Sans,Ubuntu,Cantarell,Helvetica Neue,sans-serif"
+            },
+            "themeState": {
+                "base-color": {
+                    "default": "#097479",
+                    "value": "#097479",
+                    "edited": false
+                },
+                "page-titlebar-backgroundColor": {
+                    "value": "#097479",
+                    "edited": false
+                },
+                "page-backgroundColor": {
+                    "value": "#111111",
+                    "edited": false
+                },
+                "page-sidebar-backgroundColor": {
+                    "value": "#333333",
+                    "edited": false
+                },
+                "group-textColor": {
+                    "value": "#0eb8c0",
+                    "edited": false
+                },
+                "group-borderColor": {
+                    "value": "#555555",
+                    "edited": false
+                },
+                "group-backgroundColor": {
+                    "value": "#333333",
+                    "edited": false
+                },
+                "widget-textColor": {
+                    "value": "#eeeeee",
+                    "edited": false
+                },
+                "widget-backgroundColor": {
+                    "value": "#097479",
+                    "edited": false
+                },
+                "widget-borderColor": {
+                    "value": "#333333",
+                    "edited": false
+                },
+                "base-font": {
+                    "value": "-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Oxygen-Sans,Ubuntu,Cantarell,Helvetica Neue,sans-serif"
+                }
+            },
+            "angularTheme": {
+                "primary": "indigo",
+                "accents": "blue",
+                "warn": "red",
+                "background": "grey"
+            }
+        },
+        "site": {
+            "name": "Node-RED Dashboard",
+            "hideToolbar": "true",
+            "allowSwipe": "true",
+            "lockMenu": "false",
+            "allowTempTheme": "true",
+            "dateFormat": "DD/MM/YYYY",
+            "sizes": {
+                "sx": 48,
+                "sy": 48,
+                "gx": 6,
+                "gy": 6,
+                "cx": 6,
+                "cy": 6,
+                "px": 0,
+                "py": 0
+            }
+        }
+    },
+    {
+        "id": "8588b9b.8464f48",
+        "type": "ui_tab",
+        "name": "Workout",
+        "icon": "dashboard",
+        "order": 1,
+        "disabled": false,
+        "hidden": false
+    },
+    {
+        "id": "5c7dfe6e.7d013",
+        "type": "ui_group",
+        "name": "PowerCalibration",
+        "tab": "7731c1dd.7867",
+        "order": 1,
+        "disp": true,
+        "width": "7",
+        "collapse": true
+    },
+    {
+        "id": "2abd97e1.82cc48",
+        "type": "ui_group",
+        "name": "HR",
+        "tab": "8588b9b.8464f48",
+        "order": 2,
+        "disp": true,
+        "width": "7",
+        "collapse": true
+    },
+    {
+        "id": "251514f2.86154c",
+        "type": "ui_group",
+        "name": "HRV",
+        "tab": "8588b9b.8464f48",
+        "order": 3,
+        "disp": true,
+        "width": "7",
+        "collapse": true
+    },
+    {
+        "id": "d17f170a.a3a6a8",
+        "type": "ui_group",
+        "name": "Load",
+        "tab": "8588b9b.8464f48",
+        "order": 4,
+        "disp": true,
+        "width": "7",
+        "collapse": true
+    },
+    {
+        "id": "f2098849.25ca68",
+        "type": "ui_tab",
+        "name": "Power Detail",
+        "icon": "dashboard",
+        "order": 2,
+        "disabled": false,
+        "hidden": false
+    },
+    {
+        "id": "5fad0c7f.f5f524",
+        "type": "ui_group",
+        "name": "Power Stats",
+        "tab": "f2098849.25ca68",
+        "order": 1,
+        "disp": true,
+        "width": "7",
+        "collapse": false
+    },
+    {
+        "id": "49e2cce2.f92eb4",
+        "type": "ui_group",
+        "name": "Metrics",
+        "tab": "8588b9b.8464f48",
+        "order": 5,
+        "disp": true,
+        "width": "7",
+        "collapse": true
+    },
+    {
+        "id": "7731c1dd.7867",
+        "type": "ui_tab",
+        "name": "Calibration",
+        "icon": "dashboard",
+        "disabled": false,
+        "hidden": false
+    },
+    {
+        "id": "88ee5d15.c8cda",
+        "type": "ui_group",
+        "name": "Calibration Settings",
+        "tab": "7731c1dd.7867",
+        "order": 2,
+        "disp": true,
+        "width": "7",
+        "collapse": true
+    },
+    {
+        "id": "57975d27.112084",
+        "type": "mqtt in",
+        "z": "8ac9e06.674652",
+        "name": "",
+        "topic": "bike/heartrate",
+        "qos": "2",
+        "datatype": "json",
+        "broker": "c68ceccf.230e5",
+        "x": 250,
+        "y": 240,
+        "wires": [
+            [
+                "f34a2a84.6fd3b8"
+            ]
+        ]
+    },
+    {
+        "id": "47cdd269.d8786c",
+        "type": "function",
+        "z": "8ac9e06.674652",
+        "name": "HRVCalc",
+        "func": "let range = 1 * 60 * 1000;\nlet now  = new Date();\n\nlet heart_rate = parseInt(msg.payload.hr);\nlet beatCount = parseInt(msg.payload.beatCount);\nlet currentBeat = parseInt(msg.payload.currentBeat);\nlet previousBeat = parseInt(msg.payload.previousBeat);\n\nlet previousBeatCount = flow.get('previousBeatCount') || 0;\nlet buffer = flow.get('buffer') || [];\nlet total = flow.get('total') || 0;\nlet rrInterval = 0;\nprevRRInterval = flow.get('prevRRInterval') || 0;\n\n// remove old buffer values\nwhile (buffer[0] && (new Date(buffer[0].timestamp)) < (now - range)) {\n    // remove oldest sample from array and total\n    //node.warn(`removing oldest ${buffer[0].timestamp}`);\n    total -= buffer[0].value;\n    buffer.shift();\n}\n\nif (buffer.length == 0) total = 0;\n\nif(beatCount == previousBeatCount + 1)\n{\n    rrInterval = currentBeat-previousBeat;\n    if (rrInterval < 0) {\n        rrInterval = rrInterval + Math.pow(2, 16);\n    }\n    // check that previous interval is available and set properly\n    // before calculation\n    if(prevRRInterval == 0) {\n        // set the prevRRInterval correctly and move on to next beat\n        flow.set('prevRRInterval', rrInterval);\n    }\n    //check that interval isn't > 1.5 times beat length\n    //if it is, skip the calculation\n    else if (rrInterval < ((1.5 * (60 * 1000) / heart_rate))) {\n        let rrVar = Math.abs(prevRRInterval - rrInterval);\n        let sqrRRVar = Math.pow(rrVar,2);\n    \n        // add the new sample to the end\n        buffer.push({timestamp: now, value: sqrRRVar});\n        total += sqrRRVar;\n        flow.set('prevRRInterval', rrInterval);\n    }\n    else node.warn('skipping calculation');\n}\nelse {\n    node.warn('non-consecutive beats - skipped hrv calc');\n    node.warn(\"previousBeatCount: \"+previousBeatCount);\n    node.warn(\"currentBeatCount: \"+beatCount);\n}\n\nlet hrv = Math.sqrt(total/buffer.length);\n\n// always put the buffer and totals back, as time window has moved\nflow.set('buffer', buffer);\nflow.set('total', total);\nif(beatCount == 255) beatCount = -1;\nflow.set('previousBeatCount', beatCount);\n\nmsg.payload.rrInterval = rrInterval;\nmsg.payload.total = total;\nmsg.payload.bufferLength = buffer.length;\nmsg.payload.hrv = hrv;\n\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "x": 460,
+        "y": 300,
+        "wires": [
+            [
+                "a17ed935.2176e8",
+                "8ad0419.0bd1bc",
+                "15ce9ff2.76a29",
+                "ed14652d.737f28",
+                "37f9b494.a5d32c"
+            ]
+        ]
+    },
+    {
+        "id": "a17ed935.2176e8",
+        "type": "debug",
+        "z": "8ac9e06.674652",
+        "name": "",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload.trimp",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 690,
+        "y": 380,
+        "wires": []
+    },
+    {
+        "id": "8ad0419.0bd1bc",
+        "type": "csv",
+        "z": "8ac9e06.674652",
+        "name": "",
+        "sep": "\\t",
+        "hdrin": "",
+        "hdrout": "none",
+        "multi": "one",
+        "ret": "\\n",
+        "temp": "timestamp,hr,beatCount, currentBeat, previousBeat,rrInterval,trimp,hrv,total,bufferLength",
+        "skip": "0",
+        "strings": true,
+        "include_empty_strings": "",
+        "include_null_values": "",
+        "x": 650,
+        "y": 220,
+        "wires": [
+            [
+                "2e8422dd.6858de"
+            ]
+        ]
+    },
+    {
+        "id": "2e8422dd.6858de",
+        "type": "file",
+        "z": "8ac9e06.674652",
+        "name": "",
+        "filename": "/home/pi/rrintervals.txt",
+        "appendNewline": false,
+        "createDir": false,
+        "overwriteFile": "false",
+        "encoding": "none",
+        "x": 840,
+        "y": 220,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "314209b.8e17ff6",
+        "type": "ui_text",
+        "z": "8ac9e06.674652",
+        "group": "5fad0c7f.f5f524",
+        "order": 0,
+        "width": "0",
+        "height": "0",
+        "name": "",
+        "label": "Power",
+        "format": "{{msg.payload.power}}",
+        "layout": "row-spread",
+        "x": 650,
+        "y": 420,
+        "wires": []
+    },
+    {
+        "id": "bad6422a.cc5e2",
+        "type": "mqtt in",
+        "z": "8ac9e06.674652",
+        "name": "",
+        "topic": "bike/power",
+        "qos": "2",
+        "datatype": "json",
+        "broker": "c68ceccf.230e5",
+        "x": 240,
+        "y": 460,
+        "wires": [
+            [
+                "1db5d2eb.a629fd",
+                "f1672694.033d38"
+            ]
+        ]
+    },
+    {
+        "id": "eb28e150.94955",
+        "type": "ui_text",
+        "z": "8ac9e06.674652",
+        "group": "5fad0c7f.f5f524",
+        "order": 0,
+        "width": "0",
+        "height": "0",
+        "name": "",
+        "label": "Av Power",
+        "format": "{{msg.payload.av_power}}",
+        "layout": "row-spread",
+        "x": 660,
+        "y": 460,
+        "wires": []
+    },
+    {
+        "id": "1db5d2eb.a629fd",
+        "type": "function",
+        "z": "8ac9e06.674652",
+        "name": "",
+        "func": "\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "x": 460,
+        "y": 460,
+        "wires": [
+            [
+                "eb28e150.94955",
+                "c08da917.e431b8",
+                "314209b.8e17ff6"
+            ]
+        ]
+    },
+    {
+        "id": "ae7d6b6b.d5ec48",
+        "type": "ui_template",
+        "z": "8ac9e06.674652",
+        "group": "5c7dfe6e.7d013",
+        "name": "Workout Tab Format",
+        "order": 1,
+        "width": 0,
+        "height": 0,
+        "format": "<style>\n    .value {\n        font-size: 40px;\n        color: red;\n    }\n    .label {\n        font-size: 20px;\n        text-align: left;\n    }\n</style>",
+        "storeOutMessages": true,
+        "fwdInMessages": true,
+        "resendOnRefresh": true,
+        "templateScope": "local",
+        "x": 260,
+        "y": 120,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "15ce9ff2.76a29",
+        "type": "ui_text",
+        "z": "8ac9e06.674652",
+        "group": "2abd97e1.82cc48",
+        "order": 0,
+        "width": 0,
+        "height": 0,
+        "name": "",
+        "label": "HR",
+        "format": "{{msg.payload.hr}}",
+        "layout": "row-spread",
+        "x": 650,
+        "y": 260,
+        "wires": []
+    },
+    {
+        "id": "ed14652d.737f28",
+        "type": "ui_text",
+        "z": "8ac9e06.674652",
+        "group": "251514f2.86154c",
+        "order": 0,
+        "width": 0,
+        "height": 0,
+        "name": "",
+        "label": "HRV60",
+        "format": "{{msg.payload.hrv |number: 2}}",
+        "layout": "row-spread",
+        "x": 660,
+        "y": 300,
+        "wires": []
+    },
+    {
+        "id": "37f9b494.a5d32c",
+        "type": "ui_text",
+        "z": "8ac9e06.674652",
+        "group": "d17f170a.a3a6a8",
+        "order": 0,
+        "width": 0,
+        "height": 0,
+        "name": "TRIMP",
+        "label": "TRIMP",
+        "format": "{{msg.payload.trimp |number: 0}}",
+        "layout": "row-spread",
+        "x": 650,
+        "y": 340,
+        "wires": []
+    },
+    {
+        "id": "f7902dc3.ae7b6",
+        "type": "mqtt in",
+        "z": "8ac9e06.674652",
+        "name": "",
+        "topic": "bike/trainer",
+        "qos": "2",
+        "datatype": "json",
+        "broker": "c68ceccf.230e5",
+        "x": 240,
+        "y": 620,
+        "wires": [
+            [
+                "badff620.d1f018",
+                "98326e0a.dae5a"
+            ]
+        ]
+    },
+    {
+        "id": "f1672694.033d38",
+        "type": "csv",
+        "z": "8ac9e06.674652",
+        "name": "",
+        "sep": "\\t",
+        "hdrin": "",
+        "hdrout": "none",
+        "multi": "one",
+        "ret": "\\n",
+        "temp": "",
+        "skip": "0",
+        "strings": true,
+        "include_empty_strings": "",
+        "include_null_values": "",
+        "x": 250,
+        "y": 540,
+        "wires": [
+            [
+                "b6008833.e3fb48"
+            ]
+        ]
+    },
+    {
+        "id": "badff620.d1f018",
+        "type": "csv",
+        "z": "8ac9e06.674652",
+        "name": "",
+        "sep": "\\t",
+        "hdrin": "",
+        "hdrout": "none",
+        "multi": "one",
+        "ret": "\\n",
+        "temp": "timestamp,speed,force_index,force,cadence",
+        "skip": "0",
+        "strings": true,
+        "include_empty_strings": "",
+        "include_null_values": "",
+        "x": 250,
+        "y": 680,
+        "wires": [
+            [
+                "22f6b2f5.e238ee"
+            ]
+        ]
+    },
+    {
+        "id": "b6008833.e3fb48",
+        "type": "file",
+        "z": "8ac9e06.674652",
+        "name": "",
+        "filename": "/home/pi/power.txt",
+        "appendNewline": false,
+        "createDir": false,
+        "overwriteFile": "false",
+        "encoding": "none",
+        "x": 430,
+        "y": 540,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "22f6b2f5.e238ee",
+        "type": "file",
+        "z": "8ac9e06.674652",
+        "name": "",
+        "filename": "/home/pi/trainer.txt",
+        "appendNewline": false,
+        "createDir": false,
+        "overwriteFile": "false",
+        "encoding": "none",
+        "x": 430,
+        "y": 680,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "c08da917.e431b8",
+        "type": "ui_text",
+        "z": "8ac9e06.674652",
+        "group": "5fad0c7f.f5f524",
+        "order": 0,
+        "width": "0",
+        "height": "0",
+        "name": "",
+        "label": "Max Power",
+        "format": "{{msg.payload}}",
+        "layout": "row-spread",
+        "x": 670,
+        "y": 500,
+        "wires": []
+    },
+    {
+        "id": "c1ce9a0d.b4f348",
+        "type": "ui_template",
+        "z": "8ac9e06.674652",
+        "group": "5fad0c7f.f5f524",
+        "name": "Power Tab Format",
+        "order": 2,
+        "width": 0,
+        "height": 0,
+        "format": "<style>\n    .value {\n        font-size: 40px;\n        color: red;\n    }\n    .label {\n        font-size: 40px;\n    }\n</style>",
+        "storeOutMessages": true,
+        "fwdInMessages": true,
+        "resendOnRefresh": true,
+        "templateScope": "local",
+        "x": 260,
+        "y": 160,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "98326e0a.dae5a",
+        "type": "function",
+        "z": "8ac9e06.674652",
+        "name": "",
+        "func": "\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "x": 460,
+        "y": 620,
+        "wires": [
+            [
+                "50a1bd51.5e5b44",
+                "55faefec.700f",
+                "dca1e100.96fc9"
+            ]
+        ]
+    },
+    {
+        "id": "50a1bd51.5e5b44",
+        "type": "ui_text",
+        "z": "8ac9e06.674652",
+        "group": "49e2cce2.f92eb4",
+        "order": 3,
+        "width": 0,
+        "height": 0,
+        "name": "",
+        "label": "Cadence",
+        "format": "{{msg.payload.cadence}}",
+        "layout": "row-spread",
+        "x": 660,
+        "y": 600,
+        "wires": []
+    },
+    {
+        "id": "797d737a.3eeedc",
+        "type": "inject",
+        "z": "8ac9e06.674652",
+        "name": "Reset Flow Values",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 260,
+        "y": 760,
+        "wires": [
+            [
+                "dcb0b771.3c6f18"
+            ]
+        ]
+    },
+    {
+        "id": "dcb0b771.3c6f18",
+        "type": "function",
+        "z": "8ac9e06.674652",
+        "name": "",
+        "func": "flow.set('prevRRInterval', 0);\nflow.set('buffer', []);\nflow.set('total', 0);\nflow.set('trimp',0);\nflow.set('previousBeatCount', 0);\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "x": 460,
+        "y": 760,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "f34a2a84.6fd3b8",
+        "type": "function",
+        "z": "8ac9e06.674652",
+        "name": "TrimpCalc",
+        "func": "let now  = new Date();\nlet heart_rate = parseInt(msg.payload.hr);\nlet interval = (msg.payload.currentBeat - msg.payload.previousBeat)\nlet trimp = flow.get('trimp') || 0;\n\n//get time interval for this HR:\n// get prev\n\n// Calculate current TRIMP increment\n\n\t// 50-60%\n\tif (heart_rate > 100 && heart_rate < 120)\n\t\ttrimp = trimp + (0 * interval / (60*1000));\n\t// 60-70%\n\tif (heart_rate >= 120 && heart_rate < 140)\n\t\ttrimp = trimp + (1.1 * interval / (60*1000));\n\t// 70-80%\n\tif (heart_rate >= 140 && heart_rate < 160)\n\t\ttrimp = trimp + (1.7 * interval / (60*1000));\n\t// 80-90%\n\tif (heart_rate >= 160 && heart_rate < 180)\n\t\ttrimp = trimp + (2.6 * interval / (60*1000));\n\t// 90-100%\n\tif (heart_rate >= 180 && heart_rate <= 200)\n\t\ttrimp = trimp + (3.9 * interval / (60*1000));\n\nflow.set('trimp',trimp);\n\nmsg.payload.trimp = trimp;\nmsg.payload.timestamp=now.toISOString();\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "x": 460,
+        "y": 240,
+        "wires": [
+            [
+                "47cdd269.d8786c"
+            ]
+        ]
+    },
+    {
+        "id": "55faefec.700f",
+        "type": "ui_text",
+        "z": "8ac9e06.674652",
+        "group": "49e2cce2.f92eb4",
+        "order": 3,
+        "width": 0,
+        "height": 0,
+        "name": "",
+        "label": "Resistance",
+        "format": "{{msg.payload.force_index}}",
+        "layout": "row-spread",
+        "x": 670,
+        "y": 640,
+        "wires": []
+    },
+    {
+        "id": "dca1e100.96fc9",
+        "type": "ui_text",
+        "z": "8ac9e06.674652",
+        "group": "49e2cce2.f92eb4",
+        "order": 3,
+        "width": 0,
+        "height": 0,
+        "name": "",
+        "label": "Force",
+        "format": "{{msg.payload.force}}",
+        "layout": "row-spread",
+        "x": 650,
+        "y": 680,
+        "wires": []
+    },
+    {
+        "id": "8e2c5392.fa35c",
+        "type": "debug",
+        "z": "78c9ba82.45a024",
+        "name": "",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 810,
+        "y": 320,
+        "wires": []
+    },
+    {
+        "id": "1eca922f.1ec6de",
+        "type": "tcp out",
+        "z": "78c9ba82.45a024",
+        "host": "192.168.1.160",
+        "port": "8168",
+        "beserver": "client",
+        "base64": false,
+        "end": false,
+        "name": "",
+        "x": 650,
+        "y": 160,
+        "wires": []
+    },
+    {
+        "id": "534dfe0f.efb2e",
+        "type": "tcp in",
+        "z": "78c9ba82.45a024",
+        "name": "",
+        "server": "client",
+        "host": "192.168.1.160",
+        "port": "8168",
+        "datamode": "stream",
+        "datatype": "utf8",
+        "newline": "\\n",
+        "topic": "",
+        "base64": false,
+        "x": 180,
+        "y": 320,
+        "wires": [
+            [
+                "453827d9.3f1958"
+            ]
+        ]
+    },
+    {
+        "id": "ebe08350.e2f9d",
+        "type": "inject",
+        "z": "78c9ba82.45a024",
+        "name": "",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "X-set-channel:0p",
+        "payloadType": "str",
+        "x": 340,
+        "y": 160,
+        "wires": [
+            [
+                "1eca922f.1ec6de"
+            ]
+        ]
+    },
+    {
+        "id": "df0ae45b.126588",
+        "type": "inject",
+        "z": "78c9ba82.45a024",
+        "name": "",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "X-calibrate:60930p",
+        "payloadType": "str",
+        "x": 310,
+        "y": 200,
+        "wires": [
+            [
+                "1eca922f.1ec6de"
+            ]
+        ]
+    },
+    {
+        "id": "8788ffc9.7063a",
+        "type": "function",
+        "z": "78c9ba82.45a024",
+        "name": "",
+        "func": "let result = msg.payload\nif (result.Torque) {\n    flow.set('torque', result.Torque.$.Nm);\n    let timemillis = result.Torque.$.timestamp;\n    let date = new Date(timemillis * 1000);\n    flow.set('timestamp', date.toISOString().substring(11,19));\n}\nelse if (result.Power) {\n    flow.set('power', result.Power.$.watts);\n    let timemillis = result.Power.$.timestamp\n    let date = new Date(timemillis * 1000);\n    flow.set('timestamp', date.toISOString().substring(11,19));\n}\nelse if (result.SensorFound) {\n    flow.set('calibrationStatus', 'N/A')\n    flow.set('powerTapID', result.SensorFound.$.id);\n    node.warn(result.SensorFound.$.id);\n}\nelse if (result.CalibrationPass) {\n    flow.set('calibrationStatus', 'Passed')\n    node.warn(result.CalibrationPass.$.id);\n}\nelse if (result.CalibrationFail) {\n    flow.set('calibrationStatus', 'Failed')\n    node.warn(result.CalibrationFail.$.id);\n}\nelse if (result.SensorLost) {\n    flow.set('calibrationStatus', 'N/A')\n    flow.set('powerTapID', 'N/A');\n    node.warn('Lost '+result.SensorLost.$.id);\n}\nelse if (result.Cadence || result.Speed || result.Power)\n{\n    //node.warn(result);\n}\nelse node.warn(result);\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "x": 620,
+        "y": 320,
+        "wires": [
+            [
+                "8e2c5392.fa35c",
+                "290906e3.b91faa"
+            ]
+        ]
+    },
+    {
+        "id": "453827d9.3f1958",
+        "type": "xml",
+        "z": "78c9ba82.45a024",
+        "name": "ConvertToJSON",
+        "property": "payload",
+        "attr": "",
+        "chr": "",
+        "x": 420,
+        "y": 320,
+        "wires": [
+            [
+                "8788ffc9.7063a"
+            ]
+        ]
+    },
+    {
+        "id": "b2613b8f.702a78",
+        "type": "ui_text",
+        "z": "78c9ba82.45a024",
+        "group": "5c7dfe6e.7d013",
+        "order": 8,
+        "width": 0,
+        "height": 0,
+        "name": "Torque",
+        "label": "Torque",
+        "format": "{{msg.payload.torque}}",
+        "layout": "row-spread",
+        "x": 810,
+        "y": 420,
+        "wires": []
+    },
+    {
+        "id": "290906e3.b91faa",
+        "type": "change",
+        "z": "78c9ba82.45a024",
+        "name": "",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload.power",
+                "pt": "msg",
+                "to": "power",
+                "tot": "flow"
+            },
+            {
+                "t": "set",
+                "p": "payload.torque",
+                "pt": "msg",
+                "to": "torque",
+                "tot": "flow"
+            },
+            {
+                "t": "set",
+                "p": "payload.calibrationStatus",
+                "pt": "msg",
+                "to": "calibrationStatus",
+                "tot": "flow"
+            },
+            {
+                "t": "set",
+                "p": "payload.powerTapID",
+                "pt": "msg",
+                "to": "powerTapID",
+                "tot": "flow"
+            },
+            {
+                "t": "set",
+                "p": "payload.timestamp",
+                "pt": "msg",
+                "to": "timestamp",
+                "tot": "flow"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 560,
+        "y": 440,
+        "wires": [
+            [
+                "1879b1b4.049e4e",
+                "b2613b8f.702a78",
+                "e4a470c1.bb878",
+                "d01090c4.6e474",
+                "1bff6af2.8722a5"
+            ]
+        ]
+    },
+    {
+        "id": "e4a470c1.bb878",
+        "type": "ui_text",
+        "z": "78c9ba82.45a024",
+        "group": "5c7dfe6e.7d013",
+        "order": 7,
+        "width": 0,
+        "height": 0,
+        "name": "Power",
+        "label": "Power",
+        "format": "{{msg.payload.power}}",
+        "layout": "row-spread",
+        "x": 810,
+        "y": 460,
+        "wires": []
+    },
+    {
+        "id": "1879b1b4.049e4e",
+        "type": "ui_text",
+        "z": "78c9ba82.45a024",
+        "group": "5c7dfe6e.7d013",
+        "order": 2,
+        "width": 0,
+        "height": 0,
+        "name": "PT ID",
+        "label": "ANT+ ID",
+        "format": "{{msg.payload.powerTapID}}",
+        "layout": "row-spread",
+        "x": 810,
+        "y": 380,
+        "wires": []
+    },
+    {
+        "id": "d01090c4.6e474",
+        "type": "ui_text",
+        "z": "78c9ba82.45a024",
+        "group": "5c7dfe6e.7d013",
+        "order": 4,
+        "width": 0,
+        "height": 0,
+        "name": "Cal Status",
+        "label": "Cal Status",
+        "format": "{{msg.payload.calibrationStatus}}",
+        "layout": "row-spread",
+        "x": 830,
+        "y": 500,
+        "wires": []
+    },
+    {
+        "id": "1bff6af2.8722a5",
+        "type": "ui_text",
+        "z": "78c9ba82.45a024",
+        "group": "5c7dfe6e.7d013",
+        "order": 6,
+        "width": 0,
+        "height": 0,
+        "name": "Time",
+        "label": "Time",
+        "format": "{{msg.payload.timestamp}}",
+        "layout": "row-spread",
+        "x": 810,
+        "y": 540,
+        "wires": []
+    },
+    {
+        "id": "ac164a28.66e968",
+        "type": "ui_text",
+        "z": "78c9ba82.45a024",
+        "group": "5c7dfe6e.7d013",
+        "order": 9,
+        "width": 0,
+        "height": 0,
+        "name": "Calc Torque",
+        "label": "Calc Torque",
+        "format": "{{msg.payload.expectedTorqueNm |number: 4}}",
+        "layout": "row-spread",
+        "x": 830,
+        "y": 800,
+        "wires": []
+    },
+    {
+        "id": "24ae9d64.8977a2",
+        "type": "ui_text",
+        "z": "78c9ba82.45a024",
+        "group": "5c7dfe6e.7d013",
+        "order": 10,
+        "width": 0,
+        "height": 0,
+        "name": "Error",
+        "label": "Error",
+        "format": "{{msg.payload.error}}",
+        "layout": "row-spread",
+        "x": 810,
+        "y": 860,
+        "wires": []
+    },
+    {
+        "id": "51852f20.91d03",
+        "type": "ui_button",
+        "z": "78c9ba82.45a024",
+        "name": "",
+        "group": "5c7dfe6e.7d013",
+        "order": 5,
+        "width": 0,
+        "height": 0,
+        "passthru": false,
+        "label": "Calibrate",
+        "tooltip": "",
+        "color": "",
+        "bgcolor": "",
+        "icon": "",
+        "payload": "X-calibrate:60930p",
+        "payloadType": "str",
+        "topic": "topic",
+        "topicType": "msg",
+        "x": 340,
+        "y": 260,
+        "wires": [
+            [
+                "1eca922f.1ec6de"
+            ]
+        ]
+    },
+    {
+        "id": "6f3146bd.3dffa8",
+        "type": "ui_button",
+        "z": "78c9ba82.45a024",
+        "name": "",
+        "group": "5c7dfe6e.7d013",
+        "order": 3,
+        "width": 0,
+        "height": 0,
+        "passthru": false,
+        "label": "Pair",
+        "tooltip": "",
+        "color": "",
+        "bgcolor": "",
+        "icon": "",
+        "payload": "X-set-channel:0p",
+        "payloadType": "str",
+        "topic": "topic",
+        "topicType": "msg",
+        "x": 330,
+        "y": 120,
+        "wires": [
+            [
+                "1eca922f.1ec6de"
+            ]
+        ]
+    },
+    {
+        "id": "ee6a2b77.a82f48",
+        "type": "ui_numeric",
+        "z": "78c9ba82.45a024",
+        "name": "Crank Length",
+        "label": "Crank Length",
+        "tooltip": "millimetres",
+        "group": "88ee5d15.c8cda",
+        "order": 0,
+        "width": 0,
+        "height": 0,
+        "wrap": false,
+        "passthru": true,
+        "topic": "topic",
+        "topicType": "msg",
+        "format": "{{value}}",
+        "min": "165",
+        "max": "175",
+        "step": "2.5",
+        "x": 260,
+        "y": 520,
+        "wires": [
+            [
+                "c7f1a245.302bb"
+            ]
+        ]
+    },
+    {
+        "id": "63c4e06e.a0c53",
+        "type": "inject",
+        "z": "78c9ba82.45a024",
+        "name": "",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "172.5",
+        "payloadType": "num",
+        "x": 90,
+        "y": 540,
+        "wires": [
+            [
+                "ee6a2b77.a82f48",
+                "c7f1a245.302bb"
+            ]
+        ]
+    },
+    {
+        "id": "c7f1a245.302bb",
+        "type": "change",
+        "z": "78c9ba82.45a024",
+        "name": "",
+        "rules": [
+            {
+                "t": "set",
+                "p": "crankLength",
+                "pt": "flow",
+                "to": "payload",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 480,
+        "y": 540,
+        "wires": [
+            [
+                "d8dc51f.96d20b"
+            ]
+        ]
+    },
+    {
+        "id": "4e435aeb.4b4114",
+        "type": "change",
+        "z": "78c9ba82.45a024",
+        "name": "",
+        "rules": [
+            {
+                "t": "set",
+                "p": "chainring",
+                "pt": "flow",
+                "to": "payload",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 470,
+        "y": 600,
+        "wires": [
+            [
+                "d8dc51f.96d20b"
+            ]
+        ]
+    },
+    {
+        "id": "6c804be8.09a4e4",
+        "type": "ui_numeric",
+        "z": "78c9ba82.45a024",
+        "name": "Chainring",
+        "label": "Chainring",
+        "tooltip": "teeth",
+        "group": "88ee5d15.c8cda",
+        "order": 0,
+        "width": 0,
+        "height": 0,
+        "wrap": false,
+        "passthru": true,
+        "topic": "topic",
+        "topicType": "msg",
+        "format": "{{value}}",
+        "min": "30",
+        "max": "52",
+        "step": "1",
+        "x": 260,
+        "y": 580,
+        "wires": [
+            [
+                "4e435aeb.4b4114"
+            ]
+        ]
+    },
+    {
+        "id": "1f4c847b.ffbb8c",
+        "type": "inject",
+        "z": "78c9ba82.45a024",
+        "name": "",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "52",
+        "payloadType": "num",
+        "x": 90,
+        "y": 600,
+        "wires": [
+            [
+                "6c804be8.09a4e4",
+                "4e435aeb.4b4114"
+            ]
+        ]
+    },
+    {
+        "id": "9091f8ec.d12fd8",
+        "type": "change",
+        "z": "78c9ba82.45a024",
+        "name": "",
+        "rules": [
+            {
+                "t": "set",
+                "p": "cogTeeth",
+                "pt": "flow",
+                "to": "payload",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 470,
+        "y": 660,
+        "wires": [
+            [
+                "d8dc51f.96d20b"
+            ]
+        ]
+    },
+    {
+        "id": "d652fd7e.87693",
+        "type": "ui_numeric",
+        "z": "78c9ba82.45a024",
+        "name": "Cog teeth",
+        "label": "Cog teeth",
+        "tooltip": "Rear cassette",
+        "group": "88ee5d15.c8cda",
+        "order": 0,
+        "width": 0,
+        "height": 0,
+        "wrap": false,
+        "passthru": true,
+        "topic": "topic",
+        "topicType": "msg",
+        "format": "{{value}}",
+        "min": "11",
+        "max": "30",
+        "step": "1",
+        "x": 260,
+        "y": 640,
+        "wires": [
+            [
+                "9091f8ec.d12fd8"
+            ]
+        ]
+    },
+    {
+        "id": "4d8f3617.4a9268",
+        "type": "inject",
+        "z": "78c9ba82.45a024",
+        "name": "",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "12",
+        "payloadType": "num",
+        "x": 90,
+        "y": 660,
+        "wires": [
+            [
+                "d652fd7e.87693",
+                "9091f8ec.d12fd8"
+            ]
+        ]
+    },
+    {
+        "id": "49eabc7c.cbc3d4",
+        "type": "change",
+        "z": "78c9ba82.45a024",
+        "name": "",
+        "rules": [
+            {
+                "t": "set",
+                "p": "weight",
+                "pt": "flow",
+                "to": "payload",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 460,
+        "y": 720,
+        "wires": [
+            [
+                "d8dc51f.96d20b"
+            ]
+        ]
+    },
+    {
+        "id": "e76529f6.644d58",
+        "type": "ui_numeric",
+        "z": "78c9ba82.45a024",
+        "name": "Weight",
+        "label": "Weight",
+        "tooltip": "kg",
+        "group": "88ee5d15.c8cda",
+        "order": 0,
+        "width": 0,
+        "height": 0,
+        "wrap": false,
+        "passthru": true,
+        "topic": "topic",
+        "topicType": "msg",
+        "format": "{{value}}kg",
+        "min": "2",
+        "max": "80",
+        "step": "1",
+        "x": 250,
+        "y": 700,
+        "wires": [
+            [
+                "49eabc7c.cbc3d4"
+            ]
+        ]
+    },
+    {
+        "id": "c05914dd.ed5338",
+        "type": "inject",
+        "z": "78c9ba82.45a024",
+        "name": "",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "5",
+        "payloadType": "num",
+        "x": 90,
+        "y": 720,
+        "wires": [
+            [
+                "e76529f6.644d58",
+                "49eabc7c.cbc3d4"
+            ]
+        ]
+    },
+    {
+        "id": "d8dc51f.96d20b",
+        "type": "function",
+        "z": "78c9ba82.45a024",
+        "name": "",
+        "func": "let crankLength = flow.get('crankLength');\nlet chainring = flow.get('chainring');\nlet cogTeeth = flow.get('cogTeeth');\nlet weight = flow.get('weight');\n\nlet expectedTorque = weight*9.80665*(crankLength/1000)*(cogTeeth/chainring);\nmsg = {}\nmsg.payload = {}\nmsg.payload.expectedTorqueNm = expectedTorque;\nmsg.payload.expectedTorquelbin = expectedTorque*8.85074;\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "x": 760,
+        "y": 620,
+        "wires": [
+            [
+                "ac164a28.66e968",
+                "24ae9d64.8977a2",
+                "3a462962.2c4456"
+            ]
+        ]
+    },
+    {
+        "id": "3a462962.2c4456",
+        "type": "debug",
+        "z": "78c9ba82.45a024",
+        "name": "",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 930,
+        "y": 620,
+        "wires": []
+    },
+    {
+        "id": "4139d510.b320dc",
+        "type": "debug",
+        "z": "78c9ba82.45a024",
+        "name": "",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 430,
+        "y": 800,
+        "wires": []
+    },
+    {
+        "id": "a3d1395d.425d18",
+        "type": "debug",
+        "z": "78c9ba82.45a024",
+        "name": "",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 450,
+        "y": 840,
+        "wires": []
+    },
+    {
+        "id": "985d9584.1719f8",
+        "type": "debug",
+        "z": "78c9ba82.45a024",
+        "name": "",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 450,
+        "y": 880,
+        "wires": []
+    },
+    {
+        "id": "6efc60ab.72a6c",
+        "type": "debug",
+        "z": "78c9ba82.45a024",
+        "name": "",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 450,
+        "y": 920,
+        "wires": []
+    }
+]
